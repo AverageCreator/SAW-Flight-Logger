@@ -10,7 +10,7 @@ Paste the code
 
 Setup completed for the script
 
-How to make it working?
+How to make it work?
 
 Create a webhook in your flight log channel
 Name it whatever you want
@@ -19,6 +19,7 @@ Copy the URL and paste it in its appropriate space
 Setup completed for the webhook
 
 How to use it?
+
 First, the script will ask for the pilot cs. The recommended format is: [Airlines ICAO/IATA code + Flight number] operated by [Your discord name, abbreviated too is ok]
 Make sure that you've noted the ICAO of both your departure airport and arrival airport,
 The script, when you've taken off, will ask you for the departure airport's ICAO code: put it in and then press Enter
