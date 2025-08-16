@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         GeoFS Flight Logger 
+// @name         Semi-Automated-Webhook Flight logger
 // @namespace    https://your-va.org/flightlogger
-// @version      2025-07-17
-// @description  Logs flights for every airport by asking the pilot to enter ICAO codes manually
+// @version      2025-08-07
+// @description  Logs flights with crash detection, ICAO input, session recovery & terrain-based AGL check
 // @match        http://*/geofs.php*
 // @match        https://*/geofs.php*
 // @run-at       document-end
@@ -12,103 +12,254 @@
 (function () {
   'use strict';
 
-  const WEBHOOK_URL = "" //webhook URL here; 
+  const WEBHOOK_URL = "https://discord.com/api/webhooks/1396707133470408837/yUFY7rR3HSxYOvbeqqTniQxtSlPJ7SSfFVN4JqK9-nEdGfJ6BI5o39XIbf5Zdi0Sav3w";
+  const STORAGE_KEY = "geofs_flight_logger_session";
 
   let flightStarted = false;
   let flightStartTime = null;
   let departureICAO = "UNKNOWN";
   let arrivalICAO = "UNKNOWN";
   let hasLanded = false;
+  let monitorInterval = null;
+  let firstGroundContact = false;
+  let firstGroundTime = null;
+  let panelUI, startButton, callsignInput, aircraftInput;
 
-  const pilotName = prompt("👨‍✈️ Enter your pilot name or callsign:") || "UnknownPilot";
+  function saveSession() {
+    const session = {
+      flightStarted,
+      flightStartTime,
+      departureICAO,
+      callsign: callsignInput?.value.trim() || "Unknown",
+      aircraft: aircraftInput?.value.trim() || "Unknown",
+      firstGroundContact,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  }
+
+  function loadSession() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  }
+
+  function clearSession() {
+    localStorage.removeItem(STORAGE_KEY);
+  }
 
   function sendLogToDiscord(data) {
-    const aircraftType = prompt("🛩️ Enter your aircraft type (e.g., A320, B738, C172):") || "Unknown Aircraft";
-    const now = new Date();
-    const options = { timeZone: "Europe/London", day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
-    const timestamp = new Intl.DateTimeFormat('en-GB', options).format(now);
-    const takeoffTime = new Intl.DateTimeFormat('en-GB', options).format(new Date(data.takeoff));
-    const landingTime = new Intl.DateTimeFormat('en-GB', options).format(new Date(data.landing));
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: "Europe/London", day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    const takeoffTime = fmt.format(new Date(data.takeoff));
+    const landingTime = fmt.format(new Date(data.landing));
 
     const message = {
       content: `🧾 **Flight Report - GeoFS**
-**✈️Flight Number and operator**: ${data.pilot}
-**🛩️ Aircraft**: ${aircraftType}
+**✈️ Flight Number and operator**: ${data.pilot}
+**🛩️ Aircraft**: ${data.aircraft}
 **📍Departure**: ${data.dep}
 **🛬 Arrival**: ${data.arr}
-**⏱️Flight Time**: ${data.duration} mins
-**📉V/S**: ${data.vs} fpm | **G-Force**: ${data.gforce}
-**⚙️TAS**: ${data.ktrue} kts | **GS**: ${data.gs} kts
-**🏁Landing**: ${data.landingQuality}
+**⏱️ Flight Time**: ${data.duration} mins
+**📉 V/S**: ${data.vs} fpm | **G-Force**: ${data.gforce}
+**⚙️ TAS**: ${data.ktrue} kts | **GS**: ${data.gs} kts
+**🏁 Landing**: ${data.landingQuality}
 **🕓 Takeoff Time**: ${takeoffTime} BST
 **🕓 Landing Time**: ${landingTime} BST`
     };
 
-    if (WEBHOOK_URL) {
-      fetch(WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(message)
-      }).then(r => console.log("✅ Flight log sent"))
-        .catch(console.error);
-    } else {
-      console.log("📋 Flight log:", message.content);
-    }
+    fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(message)
+    }).then(() => console.log("✅ Flight log sent"))
+      .catch(console.error);
   }
 
   function monitorFlight() {
-    if (!geofs?.animation?.values || geofs.isPaused()) return;
+    if (!geofs?.animation?.values || !geofs.aircraft?.instance) return;
 
     const values = geofs.animation.values;
     const onGround = values.groundContact;
-    const altitude = values.altitude;
+    const altitudeFt = values.altitude * 3.28084;
+    const terrainFt = geofs.api?.map?.getTerrainAltitude?.() * 3.28084 || 0;
+    const agl = altitudeFt - terrainFt;
 
-    // Start
-    if (!flightStarted && !onGround && altitude > 200) {
+    const now = Date.now();
+
+    if (!flightStarted && !onGround && agl > 100) {
       flightStarted = true;
-      flightStartTime = Date.now();
+      flightStartTime = now;
       departureICAO = prompt("📍 Enter ICAO of departure airport:") || "UNKNOWN";
+      saveSession();
       console.log(`🛫 Departure: ${departureICAO}`);
     }
 
-    // End
-    if (flightStarted && onGround && !hasLanded && values.groundSpeedKnt < 1) {
-      const confirmEnd = confirm("✈️ Aircraft has come to a full stop. Do you want to end the flight?");
-      if (!confirmEnd) return;
-      hasLanded = true;
-      const durationMin = Math.round((Date.now() - flightStartTime) / 60000);
-      arrivalICAO = prompt("📍 Enter ICAO of arrival airport:") || "UNKNOWN";
-      const vs = values.verticalSpeed.toFixed(1);
+    const elapsed = (now - flightStartTime) / 1000;
+
+    if (flightStarted && !firstGroundContact && onGround) {
+      if (elapsed < 1) {
+        console.log("⏳ Not enough flight time to log.");
+        return;
+      }
+
+      const vs = values.verticalSpeed;
+
+      if (vs <= -800) {
+        alert("⚠️ CRASH DETECTED: Logging crash report.");
+        arrivalICAO = "Crash";
+      } else {
+        arrivalICAO = prompt("📍 Enter ICAO of arrival airport:") || "UNKNOWN";
+      }
+
+      firstGroundContact = true;
+      firstGroundTime = now;
+
       const g = (values.accZ / 9.80665).toFixed(2);
       const gs = values.groundSpeedKnt.toFixed(1);
-      const tas = geofs.aircraft.instance.trueAirSpeed.toFixed(1);
+      const tas = geofs.aircraft.instance.trueAirSpeed?.toFixed(1) || "N/A";
       const quality = (vs > -60) ? "BUTTER" : (vs > -800) ? "HARD" : "CRASH";
 
+      const pilot = callsignInput.value.trim() || "Unknown";
+      const aircraft = aircraftInput.value.trim() || "Unknown";
+      const durationMin = Math.round((firstGroundTime - flightStartTime) / 60000);
+
       sendLogToDiscord({
-        pilot: pilotName,
+        pilot,
+        aircraft,
         takeoff: flightStartTime,
-        landing: Date.now(),
+        landing: firstGroundTime,
         dep: departureICAO,
         arr: arrivalICAO,
         duration: durationMin,
-        vs: vs,
+        vs: vs.toFixed(1),
         gforce: g,
         gs: gs,
         ktrue: tas,
         landingQuality: quality
       });
 
-      // Reset
-      setTimeout(() => {
-        flightStarted = false;
-        hasLanded = false;
-        flightStartTime = null;
-        departureICAO = "UNKNOWN";
-        arrivalICAO = "UNKNOWN";
-      }, 15000);
+      saveSession();
+      clearSession();
+      resetPanel();
+
+      if (monitorInterval) {
+        clearInterval(monitorInterval);
+        monitorInterval = null;
+      }
     }
   }
 
-  console.log("✅ GeoFS Flight Logger (Manual ICAO Mode) Loaded");
-  setInterval(monitorFlight, 1000);
+  function resetPanel() {
+    flightStarted = false;
+    hasLanded = false;
+    firstGroundContact = false;
+    flightStartTime = null;
+    departureICAO = "UNKNOWN";
+    arrivalICAO = "UNKNOWN";
+    callsignInput.value = "";
+    aircraftInput.value = "";
+    startButton.disabled = true;
+    startButton.innerText = "📋 Start Flight Logger";
+  }
+
+  function disableKeyPropagation(input) {
+    ["keydown", "keyup", "keypress"].forEach(eventType => {
+      input.addEventListener(eventType, e => e.stopPropagation());
+    });
+  }
+
+  function createSidePanel() {
+    panelUI = document.createElement("div");
+    Object.assign(panelUI.style, {
+      position: "absolute",
+      top: "10px",
+      right: "10px",
+      background: "#111",
+      color: "white",
+      padding: "10px",
+      border: "2px solid white",
+      zIndex: "9999",
+      width: "220px",
+      fontSize: "14px",
+      fontFamily: "sans-serif"
+    });
+
+    callsignInput = document.createElement("input");
+    callsignInput.placeholder = "Callsign";
+    callsignInput.style.width = "100%";
+    callsignInput.style.marginBottom = "6px";
+    disableKeyPropagation(callsignInput);
+    callsignInput.onkeyup = () => {
+      startButton.disabled = callsignInput.value.trim() === "";
+    };
+
+    aircraftInput = document.createElement("input");
+    aircraftInput.placeholder = "Aircraft Type (A320, B737, etc)";
+    aircraftInput.style.width = "100%";
+    aircraftInput.style.marginBottom = "6px";
+    disableKeyPropagation(aircraftInput);
+
+    startButton = document.createElement("button");
+    startButton.innerText = "📋 Start Flight Logger";
+    startButton.disabled = true;
+    Object.assign(startButton.style, {
+      width: "100%",
+      padding: "6px",
+      background: "#333",
+      color: "white",
+      border: "1px solid white",
+      cursor: "pointer"
+    });
+
+    startButton.onclick = () => {
+      alert("Flight Logger activated! Start your flight when ready.");
+      monitorInterval = setInterval(monitorFlight, 1000);
+      startButton.innerText = "✅ Logger Running...";
+      startButton.disabled = true;
+    };
+
+    panelUI.appendChild(callsignInput);
+    panelUI.appendChild(aircraftInput);
+    panelUI.appendChild(startButton);
+
+    const resumeSession = loadSession();
+    const resumeBtn = document.createElement("button");
+    resumeBtn.innerText = "⏪ Resume Last Flight";
+    Object.assign(resumeBtn.style, {
+      width: "100%",
+      marginTop: "6px",
+      padding: "6px",
+      background: "#222",
+      color: "white",
+      border: "1px solid white",
+      cursor: "pointer"
+    });
+
+    resumeBtn.onclick = () => {
+      if (resumeSession) {
+        flightStarted = true;
+        flightStartTime = resumeSession.flightStartTime;
+        departureICAO = resumeSession.departureICAO;
+        firstGroundContact = resumeSession.firstGroundContact || false;
+        callsignInput.value = resumeSession.callsign || "";
+        aircraftInput.value = resumeSession.aircraft || "";
+        monitorInterval = setInterval(monitorFlight, 1000);
+        resumeBtn.innerText = "✅ Resumed!";
+        resumeBtn.disabled = true;
+        startButton.innerText = "✅ Logger Running...";
+        startButton.disabled = true;
+        console.log("🔁 Resumed flight session.");
+      } else {
+        alert("❌ No previous session found.");
+      }
+    };
+
+    panelUI.appendChild(resumeBtn);
+    document.body.appendChild(panelUI);
+  }
+
+  window.addEventListener("load", () => {
+    console.log("✅ GeoFS Flight Logger (Terrain Aware) Loaded");
+    createSidePanel();
+  });
 })();
