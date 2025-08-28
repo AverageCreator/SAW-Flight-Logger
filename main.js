@@ -15,7 +15,8 @@
   const WEBHOOK_URL = "https://discord.com/api/webhooks/1406257491200966676/uo2BElGKf3Z2OTy2KGskd-cuIzKdiJSlgkiYUd9Hd0_622E0xE88Xigmqp4we6Woepxl";
   const STORAGE_KEY = "geofs_flight_logger_session";
   const AIRLINES_KEY = "geofs_flight_logger_airlines";
-  const LAST_AIRLINE_KEY = "geofs_flight_logger_last_airline"; // 新增：儲存上次選擇的航空公司
+  const LAST_AIRLINE_KEY = "geofs_flight_logger_last_airline";
+  const TERMS_AGREED_KEY = "geofs_flight_logger_terms_agreed";
 
   let flightStarted = false;
   let flightStartTime = null;
@@ -27,8 +28,8 @@
   let firstGroundTime = null;
   let panelUI, startButton, callsignInput, aircraftInput, airlineSelect;
   let airportsDB = [];
-  let departureAirportData = null; // 儲存起飛機場資料
-  let arrivalAirportData = null;   // 儲存降落機場資料
+  let departureAirportData = null;
+  let arrivalAirportData = null;
 
   // ====== Load airports database ======
   fetch("https://raw.githubusercontent.com/seabus0316/GeoFS-METAR-system/refs/heads/main/airports_with_tz.json")
@@ -55,8 +56,8 @@
         nearest = ap;
       }
     }
-    if (nearest && minDist > 30) return null; // 返回 null 而非 UNKNOWN
-    return nearest || null; // 返回 null 而非 UNKNOWN
+    if (nearest && minDist > 30) return null;
+    return nearest || null;
   }
 
   function saveSession() {
@@ -88,7 +89,6 @@
     return icao ? icao.toUpperCase().trim() : "UNKNOWN";
   }
 
-  // 航空公司管理功能
   function saveAirlines(airlines) {
     localStorage.setItem(AIRLINES_KEY, JSON.stringify(airlines));
   }
@@ -97,10 +97,8 @@
     const stored = localStorage.getItem(AIRLINES_KEY);
     if (stored) {
       const airlines = JSON.parse(stored);
-      // 檢查是否需要升級舊格式
       const firstKey = Object.keys(airlines)[0];
       if (firstKey && typeof airlines[firstKey] === 'string') {
-        // 舊格式，需要升級
         console.log("📦 Upgrading airline data format...");
         const upgraded = {};
         for (const [name, webhook] of Object.entries(airlines)) {
@@ -122,12 +120,10 @@
     };
   }
 
-  // 新增：儲存上次選擇的航空公司
   function saveLastAirline(airlineName) {
     localStorage.setItem(LAST_AIRLINE_KEY, airlineName);
   }
 
-  // 新增：載入上次選擇的航空公司
   function loadLastAirline() {
     return localStorage.getItem(LAST_AIRLINE_KEY);
   }
@@ -182,29 +178,25 @@
 
   function updateAirlineSelect() {
     const airlines = loadAirlines();
-    const lastAirline = loadLastAirline(); // 載入上次選擇的航空公司
+    const lastAirline = loadLastAirline();
 
     airlineSelect.innerHTML = "";
 
     for (const [name, airlineData] of Object.entries(airlines)) {
       const option = document.createElement("option");
 
-      // 處理舊格式和新格式的相容性
       if (typeof airlineData === 'string') {
-        // 舊格式：直接是 webhook URL
         option.value = airlineData;
         option.textContent = name;
       } else {
-        // 新格式：包含 webhook 和 ICAO
         option.value = airlineData.webhook;
         option.textContent = `${name} (${airlineData.icao})`;
       }
 
-      option.setAttribute('data-airline-name', name); // 設定屬性以便後續取得航空公司名稱
+      option.setAttribute('data-airline-name', name);
       airlineSelect.appendChild(option);
     }
 
-    // 如果有上次的選擇，自動選擇它
     if (lastAirline) {
       const targetOption = Array.from(airlineSelect.options).find(
         option => option.getAttribute('data-airline-name') === lastAirline
@@ -215,12 +207,10 @@
       }
     }
 
-    // 當選擇改變時，儲存新的選擇（移除重複的事件監聽器）
     airlineSelect.removeEventListener('change', airlineChangeHandler);
     airlineSelect.addEventListener('change', airlineChangeHandler);
   }
 
-  // 定義事件處理器函數，避免重複綁定
   function airlineChangeHandler() {
     const selectedOption = airlineSelect.options[airlineSelect.selectedIndex];
     const airlineName = selectedOption.getAttribute('data-airline-name');
@@ -237,14 +227,12 @@
 
     if (airlineName && airlines[airlineName]) {
       const airlineData = airlines[airlineName];
-      // 處理新格式和舊格式的相容性
       return typeof airlineData === 'object' ? airlineData.webhook : airlineData;
     }
 
     return airlineSelect.value || WEBHOOK_URL;
   }
 
-  // 新增：取得當前選擇的航空公司 ICAO 代碼
   function getCurrentAirlineICAO() {
     const airlines = loadAirlines();
     const selectedOption = airlineSelect.options[airlineSelect.selectedIndex];
@@ -258,13 +246,11 @@
   }
 
   function formatTimeWithTimezone(timestamp, airportData) {
-    // 如果有機場時區資料，使用機場時區，否則使用UTC
     let timeZone = 'UTC';
     let suffix = 'UTC';
 
     if (airportData && airportData.tz) {
       timeZone = airportData.tz;
-      // 取得時區簡寫 (例如 Asia/Taipei -> CST)
       const date = new Date(timestamp);
       const timezoneName = date.toLocaleDateString('en', {
         timeZone: timeZone,
@@ -287,17 +273,15 @@
   }
 
   function sendLogToDiscord(data) {
-    // 使用起飛和降落機場的本地時間
     const takeoffTime = formatTimeWithTimezone(data.takeoff, departureAirportData);
     const landingTime = formatTimeWithTimezone(data.landing, arrivalAirportData);
 
-    // 根據降落品質決定顏色
     let embedColor;
     switch(data.landingQuality) {
-      case "BUTTER": embedColor = 0x00FF00; break; // 綠色
-      case "HARD": embedColor = 0xFF8000; break;   // 橘色
-      case "CRASH": embedColor = 0xFF0000; break;  // 紅色
-      default: embedColor = 0x0099FF; break;       // 藍色
+      case "BUTTER": embedColor = 0x00FF00; break;
+      case "HARD": embedColor = 0xFF8000; break;
+      case "CRASH": embedColor = 0xFF0000; break;
+      default: embedColor = 0x0099FF; break;
     }
 
     const message = {
@@ -369,14 +353,12 @@
         departureICAO = nearestAirport.icao;
         departureAirportData = nearestAirport;
       } else {
-        // 沒找到機場，詢問用戶
         departureICAO = promptForAirportICAO("Departure", lat, lon);
-        departureAirportData = null; // 手動輸入的機場沒有時區資料
+        departureAirportData = null;
       }
       saveSession();
       console.log(`🛫 Departure detected at ${departureICAO}`);
       if (panelUI) {
-        // 檢查是否需要隱藏面板（飛行開始時）
         if (window.instruments && window.instruments.visible) {
           panelUI.style.opacity = "0";
           setTimeout(() => panelUI.style.display = "none", 500);
@@ -398,9 +380,8 @@
           arrivalICAO = nearestAirport.icao;
           arrivalAirportData = nearestAirport;
         } else {
-          // 沒找到機場，詢問用戶
           arrivalICAO = promptForAirportICAO("Arrival", lat, lon);
-          arrivalAirportData = null; // 手動輸入的機場沒有時區資料
+          arrivalAirportData = null;
         }
       }
       console.log(`🛬 Arrival detected at ${arrivalICAO}`);
@@ -413,13 +394,11 @@
       const quality = (vs > -60) ? "BUTTER" : (vs > -800) ? "HARD" : "CRASH";
       const baseCallsign = callsignInput.value.trim() || "Unknown";
       const airlineICAO = getCurrentAirlineICAO();
-      // 自動在 callsign 前面加上 ICAO 代碼（如果還沒有的話）
       const pilot = baseCallsign.toUpperCase().startsWith(airlineICAO) ?
         baseCallsign : `${airlineICAO}${baseCallsign}`;
       const aircraft = aircraftInput.value.trim() || "Unknown";
       const durationMin = Math.round((firstGroundTime - flightStartTime) / 60000);
 
-      // 轉換飛行時間為 hh:mm 格式
       const hours = Math.floor(durationMin / 60);
       const minutes = durationMin % 60;
       const formattedDuration = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
@@ -463,12 +442,142 @@
     startButton.disabled = true;
     startButton.innerText = "📋 Start Flight Logger";
     if (panelUI) {
-      // 只有在 instruments 可見時才顯示面板
       if (window.instruments && window.instruments.visible) {
         panelUI.style.display = "block";
         panelUI.style.opacity = "0.5";
       }
     }
+  }
+
+  function hasAgreedToTerms() {
+    return localStorage.getItem(TERMS_AGREED_KEY) === 'true';
+  }
+
+  function setTermsAgreed() {
+    localStorage.setItem(TERMS_AGREED_KEY, 'true');
+  }
+
+  function showTermsDialog() {
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      top: '0',
+      left: '0',
+      width: '100%',
+      height: '100%',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      zIndex: '10000',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center'
+    });
+
+    const dialog = document.createElement('div');
+    Object.assign(dialog.style, {
+      background: '#1a1a1a',
+      color: 'white',
+      padding: '30px',
+      borderRadius: '10px',
+      border: '2px solid #444',
+      maxWidth: '600px',
+      maxHeight: '80vh',
+      overflow: 'auto',
+      fontFamily: 'sans-serif'
+    });
+
+    dialog.innerHTML = `
+      <h2 style="color: #00C8FF; margin-top: 0;">GeoFS SAW Flight Logger - Terms of Use</h2>
+
+      <div style="background: #2a2a2a; padding: 20px; border-radius: 5px; margin: 20px 0; max-height: 300px; overflow-y: auto;">
+        <h3>📜 Terms and Conditions of the SAW System</h3>
+
+        <div style="background: #333; padding: 15px; border-left: 4px solid #00C8FF; margin: 15px 0;">
+          <p><strong>1. Flight Integrity Agreement</strong><br>
+          You agree not to fake flights with this script. All recorded flights must be genuine flight simulation activities performed in GeoFS.</p>
+
+          <p><strong>2. Modification Restrictions</strong><br>
+          You agree not to make any major changes to this script without giving notice to the creator due to technical reasons and system integrity requirements.</p>
+
+          <p><strong>3. Pilot Preparation Responsibility</strong><br>
+          You agree to give pilots decent preparation for using this script, including proper training and understanding of its functionality before deployment.</p>
+        </div>
+
+        <h4>📋 Additional Terms:</h4>
+
+        <p><strong>4. Purpose Statement</strong><br>
+        This script is intended solely for GeoFS flight simulation logging purposes and must not be used for commercial purposes or illegal activities.</p>
+
+        <p><strong>5. Data Responsibility</strong><br>
+        • Users are responsible for the security of their Discord Webhook URLs<br>
+        • Users must ensure they have permission to use the configured Discord servers<br>
+        • This script does not store or transmit any personal sensitive information</p>
+
+        <p><strong>6. Disclaimer</strong><br>
+        • This script is provided "as is" without any form of warranty<br>
+        • The author is not responsible for any losses caused by using this script<br>
+        • Users assume all risks of use</p>
+
+        <p><strong>7. Data Processing</strong><br>
+        This script only stores the following data locally:<br>
+        • Airline settings and selection records<br>
+        • Flight session states<br>
+        • User preference settings</p>
+
+        <p><strong>8. Terms Modification</strong><br>
+        The author reserves the right to modify these terms at any time. Continued use indicates acceptance of the modified terms.</p>
+      </div>
+
+      <div style="text-align: center; margin-top: 25px;">
+        <button id="agreeBtn" style="
+          background: #00C8FF;
+          color: white;
+          border: none;
+          padding: 12px 25px;
+          margin: 0 10px;
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 16px;
+        ">✅ I Agree</button>
+
+        <button id="disagreeBtn" style="
+          background: #ff4444;
+          color: white;
+          border: none;
+          padding: 12px 25px;
+          margin: 0 10px;
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 16px;
+        ">❌ I Disagree</button>
+      </div>
+
+      <p style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+        Selecting "I Disagree" will prevent the use of GeoFS SAW Flight Logger
+      </p>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    document.getElementById('agreeBtn').addEventListener('click', function() {
+      setTermsAgreed();
+      document.body.removeChild(overlay);
+      console.log("✅ User agreed to SAW system terms of use");
+      createSidePanel();
+      setTimeout(updatePanelVisibility, 1000);
+    });
+
+    document.getElementById('disagreeBtn').addEventListener('click', function() {
+      document.body.removeChild(overlay);
+      console.log("❌ User disagreed to SAW system terms of use - Flight Logger disabled");
+      alert("You chose to disagree with the terms of use. GeoFS SAW Flight Logger will not be activated.");
+    });
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) {
+        e.preventDefault();
+      }
+    });
   }
 
   function disableKeyPropagation(input) {
@@ -487,16 +596,15 @@
       color: "white",
       padding: "10px",
       border: "2px solid white",
-      zIndex: "21", // 改為與小地圖相同的層級
+      zIndex: "21",
       width: "220px",
       fontSize: "14px",
       fontFamily: "sans-serif",
       transition: "opacity 0.5s ease",
-      display: "block", // 預設顯示
-      opacity: "0.5" // ← 新增透明度
+      display: "block",
+      opacity: "0.5"
     });
 
-    // 航空公司選擇器
     const airlineLabel = document.createElement("div");
     airlineLabel.textContent = "Airline:";
     airlineLabel.style.marginBottom = "3px";
@@ -508,7 +616,6 @@
     airlineSelect.style.marginBottom = "6px";
     panelUI.appendChild(airlineSelect);
 
-    // 航空公司管理按鈕容器
     const airlineButtons = document.createElement("div");
     airlineButtons.style.display = "flex";
     airlineButtons.style.gap = "4px";
@@ -622,23 +729,26 @@
     panelUI.appendChild(resumeBtn);
     document.body.appendChild(panelUI);
 
-    // 初始化航空公司選單
     updateAirlineSelect();
   }
 
   function updatePanelVisibility() {
     if (panelUI) {
-      // 檢查 GeoFS instruments 是否可見
       panelUI.style.display = (window.instruments && window.instruments.visible) ? "block" : "none";
     }
-    // 每 100ms 檢查一次
     setTimeout(updatePanelVisibility, 100);
   }
 
   window.addEventListener("load", () => {
-    console.log("✅ GeoFS Flight Logger (Auto ICAO, CDN JSON) Loaded");
-    createSidePanel();
-    // 開始監控 UI 顯示狀態
-    setTimeout(updatePanelVisibility, 1000); // 延遲 1 秒後開始監控，確保 GeoFS 完全載入
+    console.log("✅ GeoFS SAW Flight Logger (Auto ICAO, CDN JSON) Loaded");
+
+    if (hasAgreedToTerms()) {
+      console.log("✅ SAW system terms already agreed, initializing Flight Logger");
+      createSidePanel();
+      setTimeout(updatePanelVisibility, 1000);
+    } else {
+      console.log("📋 First time user, showing SAW system terms of use");
+      setTimeout(showTermsDialog, 2000);
+    }
   });
 })();
