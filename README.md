@@ -12,19 +12,16 @@ Setup completed for the script
 
 How to make it work?
 
-Create a webhook in your flight log channel
-Name it whatever you want
-Copy the URL and paste it in its appropriate space
-
+1. Create a webhook in your flight log channel and name it whatever you want
+2. Copy the URL 
+3. Press the "+add" green button and add your airline to the list, paste the url into the pop-up.
 Setup completed for the webhook
+*PS: The "default" is the link of our test server, don't forget to set and choose your own airline, if u make this mistake, dm seabus0316 to find your flight information. 
 
 How to use it?
 
-First, the script will ask for the pilot cs. The recommended format is: [Airlines ICAO/IATA code + Flight number] operated by [Your discord name, abbreviated too is ok]
-Make sure that you've noted the ICAO of both your departure airport and arrival airport,
-The script, when you've taken off, will ask you for the departure airport's ICAO code: put it in and then press Enter
-Once you've landed and stopped fully, the script will ask you if you want to end the flight: Click yes, and then type the ICAO of the airport of destination and the aircraft's type
-
+Just enter the flight no. (ex:516) into the UI, and press "start flight logger"
+If the airport isn't in the database (https://github.com/seabus0316/GeoFS-METAR-system/raw/refs/heads/main/airports_with_tz.json), it will ask you for the airport's ICAO, which means you have to enter it manually, or it will show "unknown" in the flight report.
 In your flight log channel, now you should see a bunch of flight logs messages sent by your webhook
 
 Terms and conditions of the SAW system:
