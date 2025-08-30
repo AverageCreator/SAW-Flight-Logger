@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto-Airport Flight Logger (GeoFS)
 // @namespace    https://your-va.org/flightlogger
-// @version      2025-08-16
+// @version      2025-08-30
 // @description  Logs flights with crash detection, auto ICAO detection, session recovery & terrain-based AGL check
 // @match        http://*/geofs.php*
 // @match        https://*/geofs.php*
@@ -88,6 +88,10 @@
     const icao = prompt(`❓ ${type} airport not found in database.\nLocation: ${locationStr}\n\nPlease enter the ICAO code manually (or leave empty for UNKNOWN):`);
     return icao ? icao.toUpperCase().trim() : "UNKNOWN";
   }
+function getAircraftName() {
+  let raw = geofs?.aircraft?.instance?.aircraftRecord?.name || "Unknown";
+  return raw.replace(/^\([^)]*\)\s*/, ""); // 去掉 (作者名) 部分
+}
 
   function saveAirlines(airlines) {
     localStorage.setItem(AIRLINES_KEY, JSON.stringify(airlines));
@@ -289,11 +293,12 @@
         title: "🛫 Flight Report - GeoFS",
         color: embedColor,
         fields: [
-          {
-            name: "✈️ Flight Information",
-            value: `**Pilot**: ${data.pilot}\n**Aircraft**: ${data.aircraft}`,
-            inline: false
-          },
+{
+  name: "✈️ Flight Information",
+  value: `**Flight no.**: ${data.pilot}\n**Pilot name**: ${geofs?.userRecord?.callsign || "Unknown"}\n**Aircraft**: ${data.aircraft}`,
+  inline: false
+},
+
           {
             name: "📍 Route",
             value: `**Departure**: ${data.dep}\n**Arrival**: ${data.arr}`,
@@ -335,6 +340,41 @@
       .catch(console.error);
   }
 
+  function showToast(message, type = 'info', duration = 3000) {
+    const toast = document.createElement('div');
+    Object.assign(toast.style, {
+      position: 'fixed',
+      top: '20px',
+      right: '20px',
+      padding: '12px 20px',
+      borderRadius: '8px',
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: '14px',
+      fontFamily: 'sans-serif',
+      zIndex: '10001',
+      minWidth: '300px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+      opacity: '0',
+      transform: 'translateX(100%)',
+      transition: 'all 0.3s ease-in-out'
+    });
+    switch(type) {
+      case 'crash': toast.style.background = 'linear-gradient(135deg, #ff4444, #cc0000)'; break;
+      case 'success': toast.style.background = 'linear-gradient(135deg, #00ff44, #00cc00)'; break;
+      case 'warning': toast.style.background = 'linear-gradient(135deg, #ffaa00, #ff8800)'; break;
+      default: toast.style.background = 'linear-gradient(135deg, #0099ff, #0066cc)';
+    }
+    toast.innerHTML = message;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '1'; toast.style.transform = 'translateX(0)'; }, 10);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100%)';
+      setTimeout(() => { if (document.body.contains(toast)) document.body.removeChild(toast); }, 300);
+    }, duration);
+  }
+
   function monitorFlight() {
     if (!geofs?.animation?.values || !geofs.aircraft?.instance) return;
     const values = geofs.animation.values;
@@ -358,6 +398,7 @@
       }
       saveSession();
       console.log(`🛫 Departure detected at ${departureICAO}`);
+      // 已移除 showToast(起飛)
       if (panelUI) {
         if (window.instruments && window.instruments.visible) {
           panelUI.style.opacity = "0";
@@ -365,13 +406,33 @@
         }
       }
     }
+    function resetPanel() {
+  flightStarted = false;
+  hasLanded = false;
+  firstGroundContact = false;
+  flightStartTime = null;
+  departureICAO = "UNKNOWN";
+  arrivalICAO = "UNKNOWN";
+  departureAirportData = null;
+  arrivalAirportData = null;
+  callsignInput.value = "";
+  startButton.disabled = true;
+  startButton.innerText = "📋 Start Flight Logger";
+
+  if (panelUI) {
+    if (window.instruments && window.instruments.visible) {
+      panelUI.style.display = "block";  // ✅ 重新顯示
+      panelUI.style.opacity = "0.5";    // ✅ 回復透明度
+    }
+  }
+}
 
     const elapsed = (now - flightStartTime) / 1000;
     if (flightStarted && !firstGroundContact && onGround) {
       if (elapsed < 1) return;
       const vs = values.verticalSpeed;
       if (vs <= -800) {
-        alert("⚠️ CRASH DETECTED: Logging crash report.");
+        showToast("💥 CRASH DETECTED<br>Logging crash report...", 'crash', 4000); // 保留 crash
         arrivalICAO = "Crash";
         arrivalAirportData = null;
       } else {
@@ -385,6 +446,7 @@
         }
       }
       console.log(`🛬 Arrival detected at ${arrivalICAO}`);
+      // 已移除 showToast(到達完成)
       firstGroundContact = true;
       firstGroundTime = now;
 
@@ -396,7 +458,7 @@
       const airlineICAO = getCurrentAirlineICAO();
       const pilot = baseCallsign.toUpperCase().startsWith(airlineICAO) ?
         baseCallsign : `${airlineICAO}${baseCallsign}`;
-      const aircraft = aircraftInput.value.trim() || "Unknown";
+      const aircraft = getAircraftName();
       const durationMin = Math.round((firstGroundTime - flightStartTime) / 60000);
 
       const hours = Math.floor(durationMin / 60);
@@ -659,13 +721,6 @@
     callsignInput.onkeyup = () => {
       startButton.disabled = callsignInput.value.trim() === "";
     };
-
-    aircraftInput = document.createElement("input");
-    aircraftInput.placeholder = "Aircraft Type (A320, B737, etc)";
-    aircraftInput.style.width = "100%";
-    aircraftInput.style.marginBottom = "6px";
-    disableKeyPropagation(aircraftInput);
-
     startButton = document.createElement("button");
     startButton.innerText = "📋 Start Flight Logger";
     startButton.disabled = true;
@@ -686,7 +741,6 @@
     };
 
     panelUI.appendChild(callsignInput);
-    panelUI.appendChild(aircraftInput);
     panelUI.appendChild(startButton);
 
     const resumeSession = loadSession();
@@ -738,11 +792,10 @@
     }
     setTimeout(updatePanelVisibility, 100);
   }
-
-  window.addEventListener("load", () => {
+window.addEventListener("load", () => {
     console.log("✅ GeoFS SAW Flight Logger (Auto ICAO, CDN JSON) Loaded");
 
-    if (hasAgreedToTerms()) {
+    if (localStorage.getItem(TERMS_AGREED_KEY) === 'true') {
       console.log("✅ SAW system terms already agreed, initializing Flight Logger");
       createSidePanel();
       setTimeout(updatePanelVisibility, 1000);
