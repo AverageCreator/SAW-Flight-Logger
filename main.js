@@ -432,19 +432,26 @@ function getAircraftName() {
       if (elapsed < 1) return;
       const vs = values.verticalSpeed;
       if (vs <= -800) {
-        showToast("💥 CRASH DETECTED<br>Logging crash report...", 'crash', 4000); // 保留 crash
-        arrivalICAO = "Crash";
-        arrivalAirportData = null;
-      } else {
-        const nearestAirport = getNearestAirport(lat, lon);
-        if (nearestAirport) {
-          arrivalICAO = nearestAirport.icao;
-          arrivalAirportData = nearestAirport;
-        } else {
-          arrivalICAO = promptForAirportICAO("Arrival", lat, lon);
-          arrivalAirportData = null;
-        }
-      }
+  showToast("💥 CRASH DETECTED<br>Logging crash report...", 'crash', 4000);
+  const nearestAirport = getNearestAirport(lat, lon);
+  if (nearestAirport) {
+    arrivalICAO = "Crash";
+    arrivalAirportData = nearestAirport;  // ✅ 用最近的機場資料抓時區
+  } else {
+    arrivalICAO = "Crash";
+    arrivalAirportData = null;            // 找不到才回退
+  }
+} else {
+  const nearestAirport = getNearestAirport(lat, lon);
+  if (nearestAirport) {
+    arrivalICAO = nearestAirport.icao;
+    arrivalAirportData = nearestAirport;
+  } else {
+    arrivalICAO = promptForAirportICAO("Arrival", lat, lon);
+    arrivalAirportData = null;
+  }
+}
+
       console.log(`🛬 Arrival detected at ${arrivalICAO}`);
       // 已移除 showToast(到達完成)
       firstGroundContact = true;
