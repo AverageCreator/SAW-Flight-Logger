@@ -7,7 +7,6 @@
 // @match        https://*/geofs.php*
 // @run-at       document-end
 // @grant        none
-// ==/UserScript==
 
 (function () {
   'use strict';
