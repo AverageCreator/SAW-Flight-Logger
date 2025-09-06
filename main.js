@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto-Airport Flight Logger (GeoFS)
 // @namespace    https://your-va.org/flightlogger
-// @version      2025-08-30
+// @version      2025-09-06
 // @description  Logs flights with crash detection, auto ICAO detection, session recovery & terrain-based AGL check
 // @match        http://*/geofs.php*
 // @match        https://*/geofs.php*
@@ -31,14 +31,22 @@
   let departureAirportData = null;
   let arrivalAirportData = null;
 
-  // ====== Load airports database ======
-  fetch("https://raw.githubusercontent.com/seabus0316/GeoFS-METAR-system/refs/heads/main/airports_with_tz.json")
-    .then(r => r.json())
-    .then(data => {
-      airportsDB = Object.entries(data).map(([icao, info]) => ({ icao, ...info }));
-      console.log(`✅ Loaded ${airportsDB.length} airports`);
-    })
-    .catch(err => console.error("❌ Airport DB load failed:", err));
+// ====== Load airports database ======
+fetch("https://raw.githubusercontent.com/mwgg/Airports/master/airports.json")
+  .then(r => r.json())
+  .then(data => {
+    airportsDB = Object.entries(data).map(([icao, info]) => ({
+      icao,
+      lat: info.lat,
+      lon: info.lon,
+      tz: info.tz || null,
+      name: info.name || "",
+      city: info.city || "",
+      country: info.country || ""
+    }));
+    console.log(`✅ Loaded ${airportsDB.length} airports`);
+  })
+  .catch(err => console.error("❌ Airport DB load failed:", err));
 
   function getNearestAirport(lat, lon) {
     if (!airportsDB.length) return { icao: "UNKNOWN" };
