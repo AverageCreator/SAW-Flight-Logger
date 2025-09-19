@@ -21,7 +21,7 @@ Setup completed for the webhook
 How to use it?
 
 Just enter the flight no. (ex:516) into the UI, and press "start flight logger"
-If the airport isn't in the database (https://github.com/seabus0316/GeoFS-METAR-system/raw/refs/heads/main/airports_with_tz.json), it will ask you for the airport's ICAO, which means you have to enter it manually, or it will show "unknown" in the flight report.
+If the airport isn't in the database (https://github.com/mwgg/Airports/blob/master/airports.json), it will ask you for the airport's ICAO, which means you have to enter it manually, or it will show "unknown" in the flight report.
 In your flight log channel, now you should see a bunch of flight logs messages sent by your webhook
 
 Terms and conditions of the SAW system:
